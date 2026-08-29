@@ -101,7 +101,13 @@ app.post('/extract-attributes', upload.single('image'), async (req, res) => {
   }
 });
 
-const WARDROBE_CATEGORIES = new Set(['top', 'bottom', 'shoes', 'outerwear', 'accessory']);
+const WARDROBE_CATEGORIES = new Set([
+  'top',
+  'bottom',
+  'shoes',
+  'outerwear',
+  'accessory',
+]);
 const ENTRY_CONTEXTS = new Set(['home-avatar', 'similarity', 'saved-fit', 'comparison']);
 
 function shortString(value, maxLength = 100) {
