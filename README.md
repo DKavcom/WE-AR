@@ -1,10 +1,10 @@
-# Closet Check
+# Re-Wear
 
 A sustainable clothing app that helps people avoid unnecessary purchases and rediscover their existing wardrobe — built with fun, daily engagement mechanics (streaks, XP, leaderboard) to keep the habit sticky.
 
 ## Problem
 
-People often buy clothes without knowing if the new piece actually works with what they already own. This leads to unnecessary purchases and underused, wasted clothing. Sustainability nudges alone don't work well because people become desensitized to them — this is an **engagement problem**, not just a data problem. Closet Check borrows the "Duolingo model" (streaks, XP, social competition) to turn sustainable wardrobe habits into a daily habit rather than a one-off decision.
+People often buy clothes without knowing if the new piece actually works with what they already own. This leads to unnecessary purchases and underused, wasted clothing. Sustainability nudges alone don't work well because people become desensitized to them — this is an **engagement problem**, not just a data problem. Re-Wear borrows the "Duolingo model" (streaks, XP, social competition) to turn sustainable wardrobe habits into a daily habit rather than a one-off decision.
 
 ## What the app does
 
