@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react'
 import type { NavProps, RewardData } from '../types'
 
 interface Props extends NavProps {
-  streak: number
   rewardData: RewardData
 }
 
@@ -39,7 +38,7 @@ function levelProgress(xp: number, threshold: number) {
   return Math.min((xp / threshold) * 100, 100)
 }
 
-export default function RewardScreen({ onNavigate, streak, rewardData }: Props) {
+export default function RewardScreen({ onNavigate, rewardData }: Props) {
   const { currentXP, xpEarned, currentLevel, nextLevelThreshold, newXP, newLevel } = rewardData
 
   const [xpVisible, setXpVisible] = useState(false)
@@ -60,7 +59,7 @@ export default function RewardScreen({ onNavigate, streak, rewardData }: Props) 
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3) }
   }, [currentLevel, newLevel, newXP, nextLevelThreshold])
 
-  const prevStreak = streak - 1
+  const hasStreakUpdate = rewardData.streakBefore !== undefined && rewardData.streakAfter !== undefined
 
   return (
     <div className="bg-[#f7f5f2] min-h-screen flex flex-col overflow-hidden relative">
@@ -146,14 +145,13 @@ export default function RewardScreen({ onNavigate, streak, rewardData }: Props) 
           )}
         </div>
 
-        {/* Streak */}
-        <div className="flex items-center gap-3 bg-white border border-[#edebe6] rounded-[18px] px-5 py-3 shadow-sm mb-2">
+        {hasStreakUpdate && <div className="flex items-center gap-3 bg-white border border-[#edebe6] rounded-[18px] px-5 py-3 shadow-sm mb-2">
           <span className="text-xl">🔥</span>
           <p className="text-[14px] font-medium text-[#111]">
-            SmartChoice Streak: {prevStreak} →{' '}
-            <span className="font-black text-[#d97706]">{streak}</span>
+            SmartChoice Streak: {rewardData.streakBefore} →{' '}
+            <span className="font-black text-[#d97706]">{rewardData.streakAfter}</span>
           </p>
-        </div>
+        </div>}
       </div>
 
       {/* Action buttons */}

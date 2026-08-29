@@ -8,6 +8,7 @@ interface Props extends NavProps {
   initialOutfit?: Outfit
   initialSavedFitId?: string
   savedFits: SavedFit[]
+  activeItemIds: string[]
   recommendations: Outfit[]
   recommendationsLoading: boolean
   onRequestMore: (excludedItemCombinations: string[][]) => Promise<Outfit[]>
@@ -28,7 +29,7 @@ function itemLabel(item: WardrobeItem) {
   return item.category[0].toUpperCase() + item.category.slice(1)
 }
 
-export default function StyleScreen({ onNavigate, onWearThis, entryPoint, initialOutfit, initialSavedFitId, savedFits, recommendations, recommendationsLoading, onRequestMore, onSaveFit, onRemoveSavedFit }: Props) {
+export default function StyleScreen({ onNavigate, onWearThis, entryPoint, initialOutfit, initialSavedFitId, savedFits, activeItemIds, recommendations, recommendationsLoading, onRequestMore, onSaveFit, onRemoveSavedFit }: Props) {
   const [outfits,setOutfits]=useState<Outfit[]>(recommendations)
   const [outfitIndex,setOutfitIndex]=useState(initialOutfit ? -1 : 0)
   const [savedFitId,setSavedFitId]=useState<string | null>(initialSavedFitId ?? null)
@@ -43,6 +44,7 @@ export default function StyleScreen({ onNavigate, onWearThis, entryPoint, initia
 
   const outfit = outfitIndex === -1 ? initialOutfit : outfits[outfitIndex]
   const items = useMemo(() => outfit ? outfitItems(outfit) : [], [outfit])
+  const hasUnavailableItems = items.some(item => !activeItemIds.includes(item.id))
   const outfitId = outfit?.id
 
   useEffect(() => {
@@ -110,9 +112,10 @@ export default function StyleScreen({ onNavigate, onWearThis, entryPoint, initia
         {items.map(item=><div key={item.id} className="bg-white rounded-[18px] border border-[#edebe6] overflow-hidden"><div className="aspect-square bg-[#f7f5f2] flex items-center justify-center p-3"><img src={item.image} alt={item.name} className="max-h-[62px] object-contain"/></div><div className="px-2.5 py-2"><p className="text-[9px] font-bold text-[#bbb] uppercase tracking-wider">{itemLabel(item)}</p><p className="text-[12px] font-semibold text-[#111] leading-tight mt-0.5">{item.name}</p></div></div>)}
       </div>
       {outfit.rationale && <p className="text-[#888] text-xs text-center leading-relaxed mb-2">{outfit.rationale}</p>}
+      {hasUnavailableItems && <p className="text-[#a33] text-xs text-center leading-relaxed mb-2">Some pieces in this saved fit are no longer available.</p>}
 
       <button onClick={()=>void next()} disabled={isTransitioning || recommendationsLoading} className="w-full text-[#555] text-[13px] font-semibold py-3 mb-2">{recommendationsLoading ? 'Styling another fit…' : '↻ Show me another fit'}</button>
-      <button onClick={()=>onWearThis(outfit)} className="w-full bg-[#1b4332] text-white font-bold text-[15px] py-4 rounded-[18px] mb-3 active:scale-[.98] transition-transform">I'll Wear This</button>
+      <button disabled={hasUnavailableItems} onClick={()=>onWearThis(outfit)} className="w-full bg-[#1b4332] text-white font-bold text-[15px] py-4 rounded-[18px] mb-3 active:scale-[.98] transition-transform disabled:bg-[#d5d2cc]">{hasUnavailableItems ? 'Unavailable pieces' : "I'll Wear This"}</button>
       <button onClick={save} className="w-full text-[13px] font-medium py-2" style={{color:savedFitId?'#c9973a':'#888'}}>{savedFitId?'♥ Saved!':'♡ Save this fit'}</button>
     </>}
   </div></div>

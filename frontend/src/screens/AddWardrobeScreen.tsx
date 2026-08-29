@@ -3,13 +3,36 @@ import type { NavProps, WardrobeCategory, WardrobeItem, WardrobeMetadata } from 
 import { attributeExtractionService, generateWardrobeItemName } from '../services/attributeExtractionService'
 
 interface Props extends NavProps {
-  onAddItem: (item: WardrobeItem) => void
+  onAddItem: (item: WardrobeItem) => Promise<string | null>
 }
 
 const categories: WardrobeCategory[] = ['top','outerwear','bottom','shoes','accessory']
 
 function readable(value: string) {
   return value.replace(/[-_]/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase())
+}
+
+async function createDisplayImage(file: File) {
+  const sourceUrl = URL.createObjectURL(file)
+  try {
+    const source = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image()
+      image.onload = () => resolve(image)
+      image.onerror = () => reject(new Error('Could not prepare this image for saving.'))
+      image.src = sourceUrl
+    })
+    const largestSide = Math.max(source.naturalWidth, source.naturalHeight)
+    const scale = largestSide > 1000 ? 1000 / largestSide : 1
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(source.naturalWidth * scale))
+    canvas.height = Math.max(1, Math.round(source.naturalHeight * scale))
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('Could not prepare this image for saving.')
+    context.drawImage(source, 0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL('image/webp', 0.82)
+  } finally {
+    URL.revokeObjectURL(sourceUrl)
+  }
 }
 
 export default function AddWardrobeScreen({ onNavigate, onAddItem }: Props) {
@@ -29,6 +52,8 @@ export default function AddWardrobeScreen({ onNavigate, onAddItem }: Props) {
   const [extractionMessage, setExtractionMessage] = useState('')
   const [extractionSource, setExtractionSource] = useState<'api' | 'local' | null>(null)
   const [analysisRunId, setAnalysisRunId] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
 
   const choose = () => inputRef.current?.click()
   const analyze = (selectedFile: File) => {
@@ -70,6 +95,7 @@ export default function AddWardrobeScreen({ onNavigate, onAddItem }: Props) {
     setBrand('')
     setSize('')
     setNotes('')
+    setSaveError('')
     setShowEditor(false)
     const reader = new FileReader()
     reader.onload = () => setImage(typeof reader.result === 'string' ? reader.result : null)
@@ -78,21 +104,34 @@ export default function AddWardrobeScreen({ onNavigate, onAddItem }: Props) {
     event.target.value = ''
   }
 
-  const save = () => {
-    if (!image || !name.trim() || extractionStatus === 'analyzing') return
-    onAddItem({
-      id: crypto.randomUUID(),
-      name: name.trim(),
-      image,
-      category,
-      color: color.trim() || undefined,
-      metadata,
-      brand: brand.trim() || undefined,
-      size: size.trim() || undefined,
-      notes: notes.trim() || undefined,
-      worn: 0,
-    })
-    onNavigate('wardrobe')
+  const save = async () => {
+    if (!image || !file || !name.trim() || extractionStatus === 'analyzing') return
+    setSaveError('')
+    setIsSaving(true)
+    try {
+      const displayImage = await createDisplayImage(file)
+      const error = await onAddItem({
+        id: crypto.randomUUID(),
+        name: name.trim(),
+        image: displayImage,
+        category,
+        color: color.trim() || undefined,
+        metadata,
+        brand: brand.trim() || undefined,
+        size: size.trim() || undefined,
+        notes: notes.trim() || undefined,
+        worn: 0,
+      })
+      if (error) {
+        setSaveError(error)
+        return
+      }
+      onNavigate('wardrobe')
+    } catch {
+      setSaveError('Could not prepare this image for saving. Try a different image.')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const summary = [
@@ -143,6 +182,7 @@ export default function AddWardrobeScreen({ onNavigate, onAddItem }: Props) {
       <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Notes</label><textarea value={notes} onChange={event=>setNotes(event.target.value)} placeholder="Optional" rows={2} className="w-full bg-[#f7f5f2] border border-[#dedbd5] rounded-xl px-3 py-3 text-sm resize-none"/>
     </div>}
 
-    {image&&<button disabled={!name.trim()||extractionStatus==='analyzing'} onClick={save} className="w-full py-4 rounded-[18px] font-bold" style={{background:name.trim()&&extractionStatus!=='analyzing'?'#111':'#d5d2cc',color:name.trim()&&extractionStatus!=='analyzing'?'#fff':'#aaa'}}>Add to My Wardrobe</button>}
+    {saveError&&<p className="text-sm text-[#a33] text-center mb-3" role="alert">{saveError}</p>}
+    {image&&<button disabled={!name.trim()||extractionStatus==='analyzing'||isSaving} onClick={()=>void save()} className="w-full py-4 rounded-[18px] font-bold" style={{background:name.trim()&&extractionStatus!=='analyzing'&&!isSaving?'#111':'#d5d2cc',color:name.trim()&&extractionStatus!=='analyzing'&&!isSaving?'#fff':'#aaa'}}>{isSaving ? 'Saving…' : 'Add to My Wardrobe'}</button>}
   </div></div>
 }

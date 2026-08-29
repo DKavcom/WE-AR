@@ -11,7 +11,7 @@ export const success = <T>(data: T): ServiceResult<T> => ({ data, error: null })
 export async function runLocalService<T>(operation: () => T): Promise<ServiceResult<T>> {
   try {
     return success(operation())
-  } catch {
-    return { data: null, error: { code: 'LOCAL_SERVICE_ERROR', message: 'Unable to complete this request locally.' } }
+  } catch (error) {
+    return { data: null, error: { code: 'LOCAL_SERVICE_ERROR', message: error instanceof Error ? error.message : 'Unable to complete this request locally.' } }
   }
 }

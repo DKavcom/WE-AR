@@ -4,10 +4,14 @@ import { outfitKey, rankNeglectedItems } from './homeOutfitService'
 import { runLocalService } from './apiClient'
 import type { EngagementUpdate, ProgressService } from './contracts'
 
-export const INITIAL_PROGRESS: UserProgress = { streak: 6, xp: 820, level: 4, nextLevelThreshold: 1000 }
+export const INITIAL_PROGRESS: UserProgress = { streak: 0, xp: 820, level: 4, nextLevelThreshold: 1000 }
 export const XP_REWARDS = { wear: 30, 'forgotten-pick': 40, 'outfit-remix': 45, 'dress-it-up': 45, 'accessory-day': 35, 'color-switch': 35, 'mix-it-up': 45, 'rotation-reset': 140, 'wardrobe-explorer': 140, 'one-piece-three-ways': 150, 'fresh-rotation': 140, repurpose: 80, donate: 100, trade: 90, sell: 80 } as const
 const EMPTY: EngagementState = { challenges: [], uniqueOutfitKeys: [], uniqueItemIds: [], nextChallengeSequence: 1 }
 let localProgress = loadProgress(INITIAL_PROGRESS)
+if (localProgress.streak > 0 && !localProgress.lastQualifyingWearDate) {
+  localProgress = { ...localProgress, streak: 0 }
+  persistProgress(localProgress)
+}
 let localEngagement = loadEngagement(EMPTY)
 const active = (items: WardrobeItem[]) => items.filter(item => item.isActive !== false)
 const count = (item: WardrobeItem) => item.wearCount ?? item.worn ?? 0
@@ -52,7 +56,8 @@ function weeklyChallenge(wardrobe: WardrobeItem[]) {
 
 function ensure(state: EngagementState, wardrobe: WardrobeItem[]) {
   const newDay = state.dailyPeriodKey !== today(), newWeek = state.weeklyPeriodKey !== week()
-  let challenges = state.challenges.filter(item => (item.cadence === 'daily' || item.cadence === 'weekly') && !(newDay && item.cadence === 'daily') && !(newWeek && item.cadence === 'weekly'))
+  const activeIds = new Set(active(wardrobe).map(item => item.id))
+  let challenges = state.challenges.filter(item => (item.cadence === 'daily' || item.cadence === 'weekly') && !(newDay && item.cadence === 'daily') && !(newWeek && item.cadence === 'weekly') && (!item.relevantItemId || activeIds.has(item.relevantItemId)) && (!item.relevantItemIds || item.relevantItemIds.every(id => activeIds.has(id))))
   const base: EngagementState = { ...state, challenges, dailyPeriodKey: today(), weeklyPeriodKey: week(), dailyOutfitKeys: newDay ? [] : state.dailyOutfitKeys ?? [], weeklyOutfitKeys: newWeek ? [] : state.weeklyOutfitKeys ?? [], weeklyQualifiedItemIds: newWeek ? [] : state.weeklyQualifiedItemIds ?? [], weeklyCategoryIds: newWeek ? [] : state.weeklyCategoryIds ?? [], weeklyTargetOutfitKeys: newWeek ? [] : state.weeklyTargetOutfitKeys ?? [] }
   const existing = challenges.filter(item => item.cadence === 'daily')
   if (existing.length < 2) challenges = [...challenges, ...dailyPool(wardrobe).sort((a, b) => hash(a.id) - hash(b.id)).filter(candidate => !existing.some(item => item.type === candidate.type || (item.relevantItemId && item.relevantItemId === candidate.relevantItemId))).slice(0, 2 - existing.length)]
@@ -70,17 +75,18 @@ function complete(challenges: EngagementChallenge[], messages: string[]) {
   const updated = challenges.map(item => { if (item.completed || item.progress < item.target) return item; earned += item.xpReward; messages.push(`${item.title} complete! +${item.xpReward} XP`); return { ...item, completed: true, completedAt: new Date().toISOString() } })
   return { challenges: updated, earned }
 }
-function finish(before: UserProgress, wardrobe: WardrobeItem[], engagement: EngagementState, earned: number, messages: string[], last?: string): EngagementUpdate {
-  const progress = addXP(before, earned, last); localProgress = progress; localEngagement = ensure(engagement, wardrobe); persistProgress(progress); persistEngagement(localEngagement)
-  return { progress, wardrobe, challenges: localEngagement.challenges.filter(item => !item.completed), reward: { currentXP: before.xp, xpEarned: earned, currentLevel: before.level, nextLevelThreshold: before.nextLevelThreshold, newXP: progress.xp, newLevel: progress.level, messages } }
+function finish(before: UserProgress, wardrobe: WardrobeItem[], engagement: EngagementState, earned: number, messages: string[], last?: string, includeStreak = false, progressBase = before): EngagementUpdate {
+  const progress = addXP(progressBase, earned, last); localProgress = progress; localEngagement = ensure(engagement, wardrobe); persistProgress(progress); persistEngagement(localEngagement)
+  return { progress, wardrobe, challenges: localEngagement.challenges.filter(item => !item.completed), reward: { currentXP: before.xp, xpEarned: earned, currentLevel: before.level, nextLevelThreshold: before.nextLevelThreshold, newXP: progress.xp, newLevel: progress.level, ...(includeStreak ? { streakBefore: before.streak, streakAfter: progress.streak } : {}), messages } }
 }
 
 export const progressService: ProgressService = {
   get: () => runLocalService(() => localProgress),
   getEngagement: wardrobe => runLocalService(() => { localEngagement = ensure(localEngagement, wardrobe); persistEngagement(localEngagement); return localEngagement }),
   recordOutfitWear: (outfit, wardrobe) => runLocalService(() => {
-    const ids = [...new Set((outfit.items ?? []).map(item => item.id).filter(id => active(wardrobe).some(item => item.id === id)))]
-    if (!ids.length) throw new Error('This outfit has no active wardrobe items to confirm.')
+    const outfitIds = [...new Set((outfit.items ?? []).map(item => item.id))]
+    if (!outfitIds.length || outfitIds.some(id => !active(wardrobe).some(item => item.id === id))) throw new Error('This fit has unavailable wardrobe pieces and cannot be confirmed as worn.')
+    const ids = outfitIds
     const before = localProgress, now = new Date().toISOString(), outfitId = outfitKey(outfit), newDaily = !localEngagement.dailyOutfitKeys?.includes(outfitId), newWeekly = !localEngagement.weeklyOutfitKeys?.includes(outfitId)
     const updatedWardrobe = wardrobe.map(item => ids.includes(item.id) ? { ...item, worn: count(item) + 1, wearCount: count(item) + 1, lastWornAt: now, lifecycleHistory: [...(item.lifecycleHistory ?? []), { id: uid(), action: 'wear' as const, createdAt: now, outfitId: outfit.id }] } : item)
     const categories = [...new Set(ids.map(id => updatedWardrobe.find(item => item.id === id)?.category).filter(Boolean) as string[])]
@@ -102,7 +108,7 @@ export const progressService: ProgressService = {
     })
     const messages = [`Outfit worn +${XP_REWARDS.wear} XP`], done = complete(progressed, messages)
     const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1); const qualifies = before.lastQualifyingWearDate !== today(); const streak = { ...before, streak: !qualifies ? before.streak : before.lastQualifyingWearDate === key(yesterday) ? before.streak + 1 : 1 }
-    return finish(streak, updatedWardrobe, { ...localEngagement, challenges: done.challenges, dailyOutfitKeys: [...new Set([...(localEngagement.dailyOutfitKeys ?? []), outfitId])], weeklyOutfitKeys: [...new Set([...(localEngagement.weeklyOutfitKeys ?? []), outfitId])], weeklyQualifiedItemIds: qualified, weeklyCategoryIds: weeklyCategories, weeklyTargetOutfitKeys: targetOutfits }, XP_REWARDS.wear + done.earned, messages, qualifies ? today() : before.lastQualifyingWearDate)
+    return finish(before, updatedWardrobe, { ...localEngagement, challenges: done.challenges, dailyOutfitKeys: [...new Set([...(localEngagement.dailyOutfitKeys ?? []), outfitId])], weeklyOutfitKeys: [...new Set([...(localEngagement.weeklyOutfitKeys ?? []), outfitId])], weeklyQualifiedItemIds: qualified, weeklyCategoryIds: weeklyCategories, weeklyTargetOutfitKeys: targetOutfits }, XP_REWARDS.wear + done.earned, messages, qualifies ? today() : before.lastQualifyingWearDate, true, streak)
   }),
   recordSustainableAction: (itemId, action, wardrobe) => runLocalService(() => {
     const item = wardrobe.find(candidate => candidate.id === itemId); if (!item || item.isActive === false) throw new Error('This item is no longer active in your wardrobe.')

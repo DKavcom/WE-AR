@@ -116,6 +116,8 @@ export interface RewardData {
   nextLevelThreshold: number
   newXP: number
   newLevel: number
+  streakBefore?: number
+  streakAfter?: number
   messages?: string[]
 }
 

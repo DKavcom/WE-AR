@@ -9,8 +9,9 @@ let localWardrobe = loadWardrobe(STARTING_WARDROBE)
 export const wardrobeService: WardrobeService = {
   list: () => runLocalService(() => localWardrobe),
   create: (item: WardrobeItem) => runLocalService(() => {
-    localWardrobe = [item, ...localWardrobe]
-    persistWardrobe(localWardrobe)
+    const nextWardrobe = [item, ...localWardrobe]
+    if (!persistWardrobe(nextWardrobe)) throw new Error('Could not save this item to your wardrobe. Try a smaller image and save again.')
+    localWardrobe = nextWardrobe
     return item
   }),
   update: (item: WardrobeItem) => runLocalService(() => {

@@ -24,8 +24,9 @@ function readArray<T>(key: string, isItem: (value: unknown) => value is T): T[] 
 function writeArray<T>(key: string, value: T[]) {
   try {
     window.localStorage.setItem(key, JSON.stringify(value))
+    return true
   } catch {
-    // Storage can be unavailable or full; keep the in-memory app usable.
+    return false
   }
 }
 
@@ -43,8 +44,9 @@ function readValue<T>(key: string, isValue: (value: unknown) => value is T): T |
 function writeValue<T>(key: string, value: T) {
   try {
     window.localStorage.setItem(key, JSON.stringify(value))
+    return true
   } catch {
-    // Storage can be unavailable or full; keep the in-memory app usable.
+    return false
   }
 }
 

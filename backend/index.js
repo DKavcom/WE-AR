@@ -25,7 +25,7 @@ Look at the clothing item in the image and return ONLY a JSON object, with no ma
 
 The JSON must have exactly this shape:
 {
-  "category": "top" | "bottom" | "dress" | "outerwear" | "shoes" | "accessory",
+  "category": "top" | "bottom" | "outerwear" | "shoes" | "accessory",
   "subcategory": "<specific type, e.g. 'button-up shirt', 'skinny jeans', 'ankle boots'>",
   "color": "<primary color, one or two words>",
   "secondary_colors": ["<any other visible colors, empty array if none>"],
