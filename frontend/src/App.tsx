@@ -196,6 +196,20 @@ export default function App() {
   const removeSavedFit=useCallback((id:string)=>{void savedFitsService.remove(id).then(result=>{
     if (!result.error) setSavedFits(fits=>fits.filter(fit=>fit.id!==id))
   })},[])
+  const removeWardrobeItem=useCallback((id:string)=>{
+    void wardrobeService.remove(id).then(result=>{
+      if (result.error) return
+      setWardrobe(items=>items.filter(item=>item.id!==id))
+      setSavedFits(fits=>{
+        const affected = fits.filter(fit => (fit.items ?? [fit.top,fit.outerwear,fit.bottom,fit.shoes].filter(Boolean)).some(item=>item?.id===id))
+        affected.forEach(fit => { void savedFitsService.remove(fit.id) })
+        return fits.filter(fit=>!affected.some(removed=>removed.id===fit.id))
+      })
+      setSimilarityResult(current=>current?.closestMatch?.id===id ? null : current)
+      setRecommendedOutfits(outfits=>outfits.filter(outfit=>!(outfit.items ?? []).some(item=>item.id===id)))
+      setInitialOutfit(current=>current && !(current.items ?? []).some(item=>item.id===id) ? current : undefined)
+    })
+  },[])
   const openStyle=useCallback((outfit:Outfit | undefined, entryPoint:StyleEntryPoint, savedFitId?:string, preferences = stylePreferences)=>{
     setInitialOutfit(outfit)
     setInitialSavedFitId(savedFitId)
@@ -218,8 +232,8 @@ export default function App() {
     {screen==='style'&&<StyleScreen onNavigate={navigate} onWearThis={handleWearThis} entryPoint={styleEntryPoint} initialOutfit={initialOutfit} initialSavedFitId={initialSavedFitId} savedFits={savedFits} recommendations={recommendedOutfits} recommendationsLoading={recommendationsLoading} onRequestMore={(excluded)=>requestRecommendations(styleEntryPoint,styleEntryPoint==='similarity'?similarityResult?.closestMatch?.id:undefined,excluded)} onSaveFit={saveFit} onRemoveSavedFit={removeSavedFit}/>} 
     {screen==='reward'&&rewardData&&<RewardScreen onNavigate={navigate} streak={progress.streak} rewardData={rewardData}/>} 
     {screen==='compare'&&<CompareFitsScreen onNavigate={navigate} items={activeWardrobe} onPreference={(options,selectedOutfitId)=>{recordPreference(options,selectedOutfitId)}} onStyleLook={(outfit)=>openStyle(outfit,'comparison')}/>} 
-    {screen==='saved'&&<SavedFitsScreen onNavigate={navigate} fits={savedFits} onOpenFit={(fit)=>openStyle(fit,'saved-fit',fit.id)}/>} 
-    {screen==='wardrobe'&&<WardrobeScreen onNavigate={navigate} items={wardrobe} onSustainableAction={handleSustainableAction}/>} 
+    {screen==='saved'&&<SavedFitsScreen onNavigate={navigate} fits={savedFits} onOpenFit={(fit)=>openStyle(fit,'saved-fit',fit.id)} onRemoveFit={removeSavedFit}/>}
+    {screen==='wardrobe'&&<WardrobeScreen onNavigate={navigate} items={wardrobe} onSustainableAction={handleSustainableAction} onRemoveItem={removeWardrobeItem}/>}
     {screen==='add-wardrobe'&&<AddWardrobeScreen onNavigate={navigate} onAddItem={addWardrobeItem}/>} 
   </div></div>
 }

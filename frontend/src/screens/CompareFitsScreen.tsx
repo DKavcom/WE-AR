@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { NavProps, Outfit, WardrobeCategory, WardrobeItem } from '../types'
 import avatarImg from '@/imports/1Home/d0dc5bfef11f2172c1ab7437f3dd356890372cbc.png'
 
@@ -52,6 +52,14 @@ export default function CompareFitsScreen({ onNavigate, items, onPreference, onS
   const outfitA=useMemo(()=>asOutfit(lookA,'A'),[lookA])
   const outfitB=useMemo(()=>asOutfit(lookB,'B'),[lookB])
   const selectorItems=selector ? items.filter(item=>item.category===selector.category) : []
+
+  useEffect(() => {
+    const ownedIds = new Set(items.map(item => item.id))
+    const clean = (look: LookSlots) => Object.fromEntries(Object.entries(look).filter(([, item]) => item && ownedIds.has(item.id))) as LookSlots
+    setLookA(clean)
+    setLookB(clean)
+    setSelector(current => current && selectorItems.length ? current : null)
+  }, [items])
 
   const updateSlot=(look:LookKey,category:WardrobeCategory,item:WardrobeItem)=>{
     if(look==='A')setLookA(current=>({...current,[category]:item}))
