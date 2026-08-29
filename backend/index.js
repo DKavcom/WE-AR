@@ -140,10 +140,91 @@ function sanitizeWardrobe(value) {
       pattern: shortString(metadata.pattern, 40),
       fit: shortString(metadata.fit, 40),
       formalityScore: Number.isFinite(metadata.formalityScore) ? Math.min(5, Math.max(1, Math.round(metadata.formalityScore))) : undefined,
+      secondaryColors: stringList(metadata.secondaryColors),
+      materialGuess: shortString(metadata.materialGuess, 60),
+      seasons: stringList(metadata.seasons, 4),
+      dominantHex: shortString(metadata.dominantHex, 10),
+      wearCount: Number.isFinite(candidate?.wearCount) ? Math.max(0, Math.round(candidate.wearCount)) : 0,
+      lastWornAt: shortString(candidate?.lastWornAt, 40),
     });
   }
   return items;
 }
+
+function sanitizeCandidate(value) {
+  if (!value || typeof value !== 'object') return null;
+  const category = shortString(value.category, 20);
+  if (!category || !WARDROBE_CATEGORIES.has(category)) return null;
+  return {
+    category,
+    subcategory: shortString(value.subcategory, 60),
+    color: shortString(value.color, 40),
+    secondaryColors: stringList(value.secondaryColors ?? value.secondary_colors),
+    pattern: shortString(value.pattern, 40),
+    styleTags: stringList(value.styleTags ?? value.style_tags),
+    fit: shortString(value.fit, 40),
+    materialGuess: shortString(value.materialGuess ?? value.material_guess, 60),
+    formalityScore: Number.isFinite(value.formalityScore ?? value.formality_score) ? Math.min(5, Math.max(1, Math.round(value.formalityScore ?? value.formality_score))) : undefined,
+    seasons: stringList(value.seasons ?? value.season, 4),
+    dominantHex: shortString(value.dominantHex ?? value.dominant_hex, 10),
+  };
+}
+
+const COMPARISON_LEVELS = new Set(['high', 'medium', 'low']);
+const DECISION_TYPES = new Set(['rewear_existing', 'consider_if_needed', 'useful_gap', 'low_utility']);
+
+function comparisonSchema() {
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: 'wardrobe_item_comparison',
+      strict: true,
+      schema: {
+        type: 'object', additionalProperties: false, required: ['duplicateRisk', 'wardrobeUtility', 'decision'],
+        properties: {
+          duplicateRisk: { type: 'object', additionalProperties: false, required: ['level', 'closestItemId', 'reasons'], properties: { level: { type: 'string', enum: ['high', 'medium', 'low'] }, closestItemId: { type: ['string', 'null'] }, reasons: { type: 'array', maxItems: 3, items: { type: 'string' } } } },
+          wardrobeUtility: { type: 'object', additionalProperties: false, required: ['level', 'compatibleItemIds', 'reasons', 'gapSummary'], properties: { level: { type: 'string', enum: ['high', 'medium', 'low'] }, compatibleItemIds: { type: 'array', maxItems: 8, items: { type: 'string' } }, reasons: { type: 'array', maxItems: 3, items: { type: 'string' } }, gapSummary: { type: 'string' } } },
+          decision: { type: 'object', additionalProperties: false, required: ['type', 'summary'], properties: { type: { type: 'string', enum: ['rewear_existing', 'consider_if_needed', 'useful_gap', 'low_utility'] }, summary: { type: 'string' } } },
+        },
+      },
+    },
+  };
+}
+
+app.post('/compare-item', async (req, res) => {
+  try {
+    const candidate = sanitizeCandidate(req.body?.candidate);
+    const wardrobe = sanitizeWardrobe(req.body?.wardrobe);
+    if (!candidate || !wardrobe) return res.status(400).json({ success: false, error: 'Invalid comparison payload.' });
+    if (!wardrobe.length) return res.json({ success: true, comparison: { duplicateRisk: { level: 'low', closestItemId: null, reasons: ['No owned items to compare yet'] }, wardrobeUtility: { level: 'low', compatibleItemIds: [], reasons: ['Add wardrobe pieces to assess styling potential'], gapSummary: 'There is not enough wardrobe context to assess utility yet.' }, decision: { type: 'consider_if_needed', summary: 'Build out your wardrobe record before relying on this check.' } } });
+    const prompt = {
+      task: 'Compare one candidate garment with the supplied active wardrobe. Separately assess duplicate risk and wardrobe utility.',
+      rules: [
+        'Use only supplied wardrobe IDs. Never invent items, metadata, wear history, prices, purchases, or sustainability claims.',
+        'Duplicate risk depends primarily on garment type/subcategory, then color, pattern, fit, style, material, and formality. Broad category alone is weak evidence.',
+        'Different broad categories cannot be medium or high duplicates. Shared color alone never makes items duplicates.',
+        'Understand common aliases such as tee/t-shirt, pants/trousers, trainers/sneakers, button-up/button-down, gray/grey, and navy/dark blue.',
+        'Utility means realistic outfit compatibility. Favor complementary categories that can be worn with the candidate; do not count same-category pieces merely because they exist.',
+        'Keep reasons concise, consumer-facing, and strictly supported by supplied data.',
+      ],
+      candidate,
+      wardrobe,
+    };
+    const response = await getOpenAIClient().chat.completions.create({ model: 'gpt-4o', messages: [{ role: 'system', content: 'You are a careful wardrobe comparison assistant. Follow the schema and supplied-ID constraints exactly.' }, { role: 'user', content: JSON.stringify(prompt) }], response_format: comparisonSchema(), max_tokens: 700 });
+    const parsed = JSON.parse(response.choices[0].message.content || '{}');
+    const wardrobeById = new Map(wardrobe.map(item => [item.id, item]));
+    let closestItemId = wardrobeById.has(parsed.duplicateRisk?.closestItemId) ? parsed.duplicateRisk.closestItemId : null;
+    let duplicateLevel = COMPARISON_LEVELS.has(parsed.duplicateRisk?.level) ? parsed.duplicateRisk.level : 'low';
+    if (closestItemId && wardrobeById.get(closestItemId).category !== candidate.category) { closestItemId = null; duplicateLevel = 'low'; }
+    const compatibleItemIds = stringList(parsed.wardrobeUtility?.compatibleItemIds, 8, 100).filter(id => wardrobeById.has(id) && wardrobeById.get(id).category !== candidate.category);
+    const utilityLevel = COMPARISON_LEVELS.has(parsed.wardrobeUtility?.level) ? parsed.wardrobeUtility.level : 'low';
+    const decisionType = DECISION_TYPES.has(parsed.decision?.type) ? parsed.decision.type : 'consider_if_needed';
+    res.json({ success: true, comparison: { duplicateRisk: { level: duplicateLevel, closestItemId, reasons: stringList(parsed.duplicateRisk?.reasons, 3, 100) }, wardrobeUtility: { level: utilityLevel, compatibleItemIds, reasons: stringList(parsed.wardrobeUtility?.reasons, 3, 140), gapSummary: shortString(parsed.wardrobeUtility?.gapSummary, 300) || 'Consider how this works with pieces you already own.' }, decision: { type: decisionType, summary: shortString(parsed.decision?.summary, 300) || 'Consider whether this fills a real wardrobe need.' } } });
+  } catch (err) {
+    console.error('Comparison error:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to compare this item. Please try again.' });
+  }
+});
 
 function sanitizePreferenceSignals(value) {
   const signals = value && typeof value === 'object' ? value : {};

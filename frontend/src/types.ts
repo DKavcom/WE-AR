@@ -9,8 +9,11 @@ export type Screen =
   | 'saved'
   | 'wardrobe'
   | 'add-wardrobe'
+  | 'market'
 
 export type SimilarityClassification = 'high' | 'medium' | 'low'
+export type WardrobeUtilityLevel = 'high' | 'medium' | 'low'
+export type BuyCheckDecisionType = 'rewear_existing' | 'consider_if_needed' | 'useful_gap' | 'low_utility'
 export type StyleEntryPoint = 'home-avatar' | 'similarity' | 'saved-fit' | 'comparison'
 
 export interface NavProps {
@@ -88,6 +91,22 @@ export interface SimilarityResult {
   breakdown?: Partial<Record<'category' | 'garmentType' | 'color' | 'styleTags' | 'pattern' | 'fit' | 'formality' | 'material' | 'total', number>>
   extractionSource?: 'api' | 'local'
   analysisRunId?: string
+  duplicateReasons?: string[]
+  wardrobeUtility?: WardrobeUtilityResult
+  decision?: BuyCheckDecision
+  comparisonSource?: 'api' | 'deterministic' | 'deterministic-fallback'
+}
+
+export interface WardrobeUtilityResult {
+  level: WardrobeUtilityLevel
+  compatibleItems: ItemPreview[]
+  reasons: string[]
+  gapSummary: string
+}
+
+export interface BuyCheckDecision {
+  type: BuyCheckDecisionType
+  summary: string
 }
 
 export interface RewardData {
@@ -118,7 +137,7 @@ export interface WardrobeLifecycleEvent {
   outfitId?: string
 }
 
-export type ChallengeType = 'bring-it-back' | 'forgotten-favorite' | 'mix-it-up' | 'rotation-ready' | 'second-life' | 'pass-it-on' | 'trade-up' | 'new-home'
+export type ChallengeType = 'forgotten-pick' | 'outfit-remix' | 'dress-it-up' | 'accessory-day' | 'color-switch' | 'mix-it-up' | 'rotation-reset' | 'wardrobe-explorer' | 'one-piece-three-ways' | 'fresh-rotation' | 'still-your-style' | 'second-life' | 'pass-it-on' | 'trade-forward' | 'new-home'
 
 export interface EngagementChallenge {
   id: string
@@ -131,6 +150,11 @@ export interface EngagementChallenge {
   completed: boolean
   relevantItemId?: string
   completedAt?: string
+  cadence?: 'daily' | 'weekly'
+  periodKey?: string
+  expiresAt?: string
+  relevantItemIds?: string[]
+  relevantColor?: string
 }
 
 export interface EngagementState {
@@ -138,11 +162,38 @@ export interface EngagementState {
   uniqueOutfitKeys: string[]
   uniqueItemIds: string[]
   nextChallengeSequence: number
+  dailyPeriodKey?: string
+  weeklyPeriodKey?: string
+  dailyOutfitKeys?: string[]
+  weeklyOutfitKeys?: string[]
+  weeklyQualifiedItemIds?: string[]
+  weeklyCategoryIds?: string[]
+  weeklyTargetOutfitKeys?: string[]
 }
 
 export interface SavedFit extends Outfit {
   createdAt: string
   outfitId: string
+}
+
+export type MarketListingType = 'buy' | 'trade'
+export interface MarketListing {
+  id: string
+  title: string
+  category: WardrobeCategory
+  image: string
+  price?: number
+  size: string
+  condition: string
+  sellerName: string
+  pickup: string
+  listingType: MarketListingType
+  tradePreference?: string
+  styleTags?: string[]
+  color?: string
+  description: string
+  isMine?: boolean
+  wardrobeItemId?: string
 }
 
 export interface StylePreference {

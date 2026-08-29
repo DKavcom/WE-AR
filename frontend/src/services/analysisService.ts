@@ -1,7 +1,8 @@
-import type { ItemPreview, SimilarityClassification, SimilarityResult, WardrobeItem } from '../types'
-import { success } from './apiClient'
+import type { ItemPreview, SimilarityClassification, SimilarityResult, WardrobeItem, WardrobeUtilityResult } from '../types'
+import { apiBaseUrl, dataMode, success } from './apiClient'
 import { attributeExtractionService } from './attributeExtractionService'
-import type { SimilarityAnalysisService, SimilarityAnalysisRequest } from './contracts'
+import type { AiComparisonResult, SimilarityAnalysisService, SimilarityAnalysisRequest } from './contracts'
+import { calculateWardrobeUtility, deterministicDecision } from './wardrobeUtilityService'
 
 export const SIMILARITY_WEIGHTS = {
   category: 10,
@@ -170,6 +171,29 @@ function toPreview(item: WardrobeItem): ItemPreview {
   return { id: item.id, name: item.name, image: item.image, category: item.category, color: item.color, metadata: item.metadata }
 }
 
+async function compareWithApi(candidate: ItemPreview, wardrobe: WardrobeItem[]): Promise<AiComparisonResult> {
+  const response = await fetch(`${apiBaseUrl}/compare-item`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      candidate: { category: candidate.category, subcategory: candidate.metadata?.subcategory, color: candidate.color, secondaryColors: candidate.metadata?.secondaryColors, pattern: candidate.metadata?.pattern, styleTags: candidate.metadata?.styleTags, fit: candidate.metadata?.fit, materialGuess: candidate.metadata?.materialGuess, formalityScore: candidate.metadata?.formalityScore, seasons: candidate.metadata?.seasons, dominantHex: candidate.metadata?.dominantHex },
+      wardrobe: wardrobe.filter(item => item.isActive !== false).map(item => ({ id: item.id, name: item.name, category: item.category, color: item.color, metadata: item.metadata, wearCount: item.wearCount ?? item.worn, lastWornAt: item.lastWornAt })),
+    }),
+  })
+  const payload = await response.json().catch(() => null) as { success?: boolean; comparison?: AiComparisonResult; error?: string } | null
+  if (!response.ok || !payload?.success || !payload.comparison) throw new Error(payload?.error ?? 'Comparison request failed.')
+  return payload.comparison
+}
+
+function reconcileUtility(ai: AiComparisonResult['wardrobeUtility'], deterministic: WardrobeUtilityResult, wardrobe: WardrobeItem[], candidate: ItemPreview): WardrobeUtilityResult {
+  const byId = new Map(wardrobe.filter(item => item.isActive !== false).map(item => [item.id, item]))
+  const compatible = [...new Set(ai.compatibleItemIds)].flatMap(id => { const item = byId.get(id); return item && item.category !== candidate.category ? [item] : [] }).slice(0, 4)
+  let level = ai.level
+  if (!compatible.length) level = deterministic.level === 'low' ? 'low' : 'medium'
+  if (level === 'high' && deterministic.level === 'low') level = 'medium'
+  return { level, compatibleItems: (compatible.length ? compatible : deterministic.compatibleItems.map(item => byId.get(item.id ?? '')).filter((item): item is WardrobeItem => Boolean(item))).slice(0, 4).map(toPreview), reasons: ai.reasons.slice(0, 3), gapSummary: ai.gapSummary }
+}
+
 export const analysisService: SimilarityAnalysisService = {
   async analyze({ file, image, wardrobe }: SimilarityAnalysisRequest) {
     const extraction = await attributeExtractionService.extract(file)
@@ -184,20 +208,50 @@ export const analysisService: SimilarityAnalysisService = {
     }
 
     if (!wardrobe.length) {
-      return success({ uploadedItem: candidate, closestMatch: null, similarityScore: 0, classification: 'low', wardrobeEmpty: true, breakdown: { total: 0 }, extractionSource: extraction.data.source, analysisRunId: extraction.data.analysisRunId })
+      const utility = calculateWardrobeUtility(candidate, [])
+      return success({ uploadedItem: candidate, closestMatch: null, similarityScore: 0, classification: 'low', wardrobeEmpty: true, breakdown: { total: 0 }, extractionSource: extraction.data.source, analysisRunId: extraction.data.analysisRunId, wardrobeUtility: utility, decision: deterministicDecision('low', utility), comparisonSource: 'deterministic' })
     }
 
     const scoredItems = wardrobe.map(item => ({ item, score: scoreSimilarity(candidate, item) }))
     const best = scoredItems.reduce((currentBest, entry) => entry.score.total > currentBest.score.total ? entry : currentBest)
 
+    const deterministicUtility = calculateWardrobeUtility(candidate, wardrobe)
+    let classification = best.score.classification
+    let closestMatch = toPreview(best.item)
+    let duplicateReasons: string[] | undefined
+    let wardrobeUtility = deterministicUtility
+    let decision = deterministicDecision(classification, wardrobeUtility)
+    let comparisonSource: SimilarityResult['comparisonSource'] = 'deterministic'
+
+    if (dataMode === 'api') {
+      try {
+        const ai = await compareWithApi(candidate, wardrobe)
+        const aiClosest = wardrobe.find(item => item.id === ai.duplicateRisk.closestItemId && item.isActive !== false && (!candidate.category || item.category === candidate.category))
+        classification = ai.duplicateRisk.level
+        if (best.score.total < 20 && classification !== 'low') classification = 'low'
+        else if (best.score.total < SIMILARITY_THRESHOLDS.medium && classification === 'high') classification = 'medium'
+        closestMatch = toPreview(aiClosest ?? best.item)
+        duplicateReasons = ai.duplicateRisk.reasons.slice(0, 3)
+        wardrobeUtility = reconcileUtility(ai.wardrobeUtility, deterministicUtility, wardrobe, candidate)
+        decision = deterministicDecision(classification, wardrobeUtility)
+        comparisonSource = 'api'
+      } catch {
+        comparisonSource = 'deterministic-fallback'
+      }
+    }
+
     return success({
       uploadedItem: candidate,
-      closestMatch: toPreview(best.item),
+      closestMatch,
       similarityScore: best.score.total,
-      classification: best.score.classification,
+      classification,
       breakdown: best.score.breakdown,
       extractionSource: extraction.data.source,
       analysisRunId: extraction.data.analysisRunId,
+      duplicateReasons,
+      wardrobeUtility,
+      decision,
+      comparisonSource,
     })
   },
 }

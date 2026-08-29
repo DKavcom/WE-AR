@@ -83,3 +83,14 @@ export function replaceHomeOutfitSlot(outfit: Outfit | undefined, item: Wardrobe
 export function homeOutfitHasItem(outfit: Outfit | undefined, item: WardrobeItem) {
   return outfit?.items?.some(currentItem => currentItem.id === item.id) ?? false
 }
+
+export function explainHomeOutfit(outfit: Outfit | undefined) {
+  const items = outfit?.items ?? []
+  const neglected = rankNeglectedItems(items)
+  if (!items.length || !neglected.length) return 'Built entirely from pieces you already own.'
+  const neglectedIds = new Set(neglected.slice(0, Math.min(3, neglected.length)).map(item => item.id))
+  const featured = items.filter(item => neglectedIds.has(item.id))
+  if (!featured.length) return 'Built entirely from pieces you already own.'
+  if (featured.length === 1) return `Bringing back ${featured[0].name} — one of your least-worn pieces.`
+  return `Featuring ${featured.length} pieces that could use more rotation.`
+}

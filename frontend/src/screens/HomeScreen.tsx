@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { ClothingItem, EngagementChallenge, NavProps, Outfit, SavedFit, UserProgress } from '../types'
 import avatarImg from '@/imports/1Home/d0dc5bfef11f2172c1ab7437f3dd356890372cbc.png'
-import { homeOutfitHasItem } from '../services/homeOutfitService'
+import { explainHomeOutfit, homeOutfitHasItem } from '../services/homeOutfitService'
 
 const categories = ['All', 'Tops', 'Outerwear', 'Bottoms', 'Shoes', 'Accessories'] as const
 type Category = (typeof categories)[number]
@@ -32,6 +32,13 @@ function combinationKey(value: Outfit | undefined) {
   return (value?.items ?? []).map(item => item.id).sort().join('|')
 }
 
+function expiryLabel(challenge: EngagementChallenge) {
+  if (challenge.cadence === 'daily') return 'Ends today'
+  if (!challenge.expiresAt) return 'This week'
+  const days = Math.max(0, Math.ceil((Date.parse(challenge.expiresAt) - Date.now()) / 86_400_000))
+  return days <= 1 ? 'Ends tomorrow' : `${days} days left`
+}
+
 export default function HomeScreen({ onNavigate, items, progress, challenges, outfit, onShuffleFit, onSelectOutfitItem, onWearThis, savedFits, onSaveFit, onRemoveSavedFit }: Props) {
   const [activeCategory, setActiveCategory] = useState<Category>('All')
   const shownItems = useMemo(() => {
@@ -39,6 +46,9 @@ export default function HomeScreen({ onNavigate, items, progress, challenges, ou
     return (category ? items.filter(item => item.category === category) : items).slice(0, 4)
   }, [activeCategory, items])
   const outfitItems = outfit?.items ?? [outfit?.top, outfit?.outerwear, outfit?.bottom, outfit?.shoes].filter((item): item is ClothingItem => Boolean(item))
+  const fitExplanation = useMemo(() => explainHomeOutfit(outfit), [outfit])
+  const dailyChallenges = challenges.filter(challenge => challenge.cadence === 'daily')
+  const weeklyChallenges = challenges.filter(challenge => challenge.cadence === 'weekly')
   const savedFit = useMemo(() => {
     const key = combinationKey(outfit)
     return key ? savedFits.find(fit => combinationKey(fit) === key) : undefined
@@ -106,12 +116,15 @@ export default function HomeScreen({ onNavigate, items, progress, challenges, ou
       </button>
 
       {/* Quick actions */}
-      <div className="flex gap-3 px-5 mb-6">
+      <div className="grid grid-cols-3 gap-2 px-5 mb-6">
         <button onClick={() => onNavigate('compare')} className="flex-1 bg-white border border-[#edebe6] rounded-2xl py-3.5 text-[13px] font-semibold text-[#111] text-center shadow-sm active:bg-[#f0ede8]">
           🪞 Compare Fits
         </button>
         <button onClick={() => onNavigate('saved')} className="flex-1 bg-white border border-[#edebe6] rounded-2xl py-3.5 text-[13px] font-semibold text-[#111] text-center shadow-sm active:bg-[#f0ede8]">
           🔖 Saved Fits
+        </button>
+        <button onClick={() => onNavigate('market')} className="flex-1 bg-white border border-[#edebe6] rounded-2xl py-3.5 text-[13px] font-semibold text-[#111] text-center shadow-sm active:bg-[#f0ede8]">
+          ♻ Market
         </button>
       </div>
 
@@ -124,6 +137,7 @@ export default function HomeScreen({ onNavigate, items, progress, challenges, ou
               <div className="w-full mt-5">
               <div className="flex items-center justify-between mb-2"><p className="text-[11px] font-bold tracking-[.1em] text-[#777] uppercase">Current fit</p><button onClick={onShuffleFit} disabled={!outfitItems.length} className="text-[11px] font-bold text-[#1b4332] disabled:text-[#bbb]">↻ Shuffle Fit</button></div>
               {outfitItems.length ? <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(outfitItems.length, 4)}, minmax(0, 1fr))` }}>{outfitItems.map(item => <div key={item.id} className="bg-white/80 border border-[#edebe6] rounded-xl p-2 text-center min-w-0"><div className="h-11 flex items-center justify-center"><img src={item.image} alt={item.name} className="max-h-10 max-w-full object-contain" /></div><p className="text-[9px] font-semibold text-[#333] truncate mt-1">{item.name}</p></div>)}</div> : <p className="text-xs text-[#999]">Add a few pieces to build your first fit.</p>}
+              {outfitItems.length > 0 && <p className="text-[11px] text-[#6e8a7a] mt-3"><span className="font-bold text-[#333]">Why this fit?</span> {fitExplanation}</p>}
               <button onClick={onWearThis} disabled={!outfitItems.length} className="w-full mt-4 bg-[#1b4332] text-white font-bold text-sm py-3.5 rounded-2xl disabled:bg-[#b7c8bf] active:scale-[.98] transition-transform">✓ I Wore This</button>
             </div>
           </div>
@@ -133,7 +147,10 @@ export default function HomeScreen({ onNavigate, items, progress, challenges, ou
       <div className="mx-5 mb-6">
         <div className="flex items-center justify-between mb-3"><h2 className="text-[17px] font-bold text-[#111]">Active challenges</h2><span className="text-[11px] text-[#888]">Earn while you rewear</span></div>
         <div className="space-y-2">
-          {challenges.slice(0, 3).map(challenge => <div key={challenge.id} className="bg-white border border-[#edebe6] rounded-2xl p-3.5 shadow-sm"><div className="flex justify-between gap-3"><div><p className="font-bold text-[13px] text-[#111]">{challenge.title}</p><p className="text-[11px] text-[#888] mt-0.5">{challenge.description}</p></div><span className="shrink-0 text-[11px] font-bold text-[#c9973a]">+{challenge.xpReward} XP</span></div><div className="flex items-center gap-2 mt-2"><div className="h-1.5 flex-1 rounded-full bg-[#f0ede8] overflow-hidden"><div className="h-full bg-[#1b4332]" style={{ width: `${Math.min((challenge.progress / challenge.target) * 100, 100)}%` }} /></div><span className="text-[10px] text-[#888]">{challenge.progress}/{challenge.target}</span></div></div>)}
+          {dailyChallenges.length > 0 && <p className="text-[10px] font-bold tracking-[.12em] text-[#999] pt-1">TODAY</p>}
+          {dailyChallenges.map(challenge => <div key={challenge.id} className="bg-white border border-[#edebe6] rounded-2xl p-3.5 shadow-sm"><div className="flex justify-between gap-3"><div><p className="font-bold text-[13px] text-[#111]">{challenge.title}</p><p className="text-[11px] text-[#888] mt-0.5">{challenge.description}</p></div><span className="shrink-0 text-[11px] font-bold text-[#c9973a]">+{challenge.xpReward} XP</span></div><div className="flex items-center gap-2 mt-2"><div className="h-1.5 flex-1 rounded-full bg-[#f0ede8] overflow-hidden"><div className="h-full bg-[#1b4332]" style={{ width: `${Math.min((challenge.progress / challenge.target) * 100, 100)}%` }} /></div><span className="text-[10px] text-[#888]">{challenge.progress}/{challenge.target}</span><span className="text-[10px] text-[#999] ml-auto">{expiryLabel(challenge)}</span></div></div>)}
+          {weeklyChallenges.length > 0 && <p className="text-[10px] font-bold tracking-[.12em] text-[#999] pt-3">THIS WEEK</p>}
+          {weeklyChallenges.map(challenge => <div key={challenge.id} className="bg-white border border-[#edebe6] rounded-2xl p-3.5 shadow-sm"><div className="flex justify-between gap-3"><div><p className="font-bold text-[13px] text-[#111]">{challenge.title}</p><p className="text-[11px] text-[#888] mt-0.5">{challenge.description}</p></div><span className="shrink-0 text-[11px] font-bold text-[#c9973a]">+{challenge.xpReward} XP</span></div><div className="flex items-center gap-2 mt-2"><div className="h-1.5 flex-1 rounded-full bg-[#f0ede8] overflow-hidden"><div className="h-full bg-[#1b4332]" style={{ width: `${Math.min((challenge.progress / challenge.target) * 100, 100)}%` }} /></div><span className="text-[10px] text-[#888]">{challenge.progress}/{challenge.target}</span><span className="text-[10px] text-[#999] ml-auto">{expiryLabel(challenge)}</span></div></div>)}
           {!challenges.length && <div className="bg-white border border-[#edebe6] rounded-2xl p-4 text-sm text-[#888]">Add an item to start a wardrobe challenge.</div>}
         </div>
       </div>

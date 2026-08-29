@@ -1,4 +1,4 @@
-import type { EngagementChallenge, EngagementState, ItemPreview, Outfit, RewardData, SavedFit, SimilarityResult, StylePreference, SustainableAction, UserProgress, WardrobeCategory, WardrobeItem, WardrobeMetadata } from '../types'
+import type { BuyCheckDecision, EngagementChallenge, EngagementState, ItemPreview, Outfit, RewardData, SavedFit, SimilarityClassification, SimilarityResult, StylePreference, SustainableAction, UserProgress, WardrobeCategory, WardrobeItem, WardrobeMetadata, WardrobeUtilityLevel } from '../types'
 
 export interface ServiceError {
   code: string
@@ -42,6 +42,12 @@ export interface SimilarityAnalysisRequest {
 
 export interface SimilarityAnalysisService {
   analyze(request: SimilarityAnalysisRequest): Promise<ServiceResult<SimilarityResult>>
+}
+
+export interface AiComparisonResult {
+  duplicateRisk: { level: SimilarityClassification; closestItemId: string | null; reasons: string[] }
+  wardrobeUtility: { level: WardrobeUtilityLevel; compatibleItemIds: string[]; reasons: string[]; gapSummary: string }
+  decision: BuyCheckDecision
 }
 
 export interface RawAttributeExtraction {
