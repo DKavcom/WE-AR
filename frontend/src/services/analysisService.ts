@@ -227,14 +227,20 @@ export const analysisService: SimilarityAnalysisService = {
       try {
         const ai = await compareWithApi(candidate, wardrobe)
         const aiClosest = wardrobe.find(item => item.id === ai.duplicateRisk.closestItemId && item.isActive !== false && (!candidate.category || item.category === candidate.category))
-        classification = ai.duplicateRisk.level
-        if (best.score.total < 20 && classification !== 'low') classification = 'low'
-        else if (best.score.total < SIMILARITY_THRESHOLDS.medium && classification === 'high') classification = 'medium'
-        closestMatch = toPreview(aiClosest ?? best.item)
-        duplicateReasons = ai.duplicateRisk.reasons.slice(0, 3)
-        wardrobeUtility = reconcileUtility(ai.wardrobeUtility, deterministicUtility, wardrobe, candidate)
-        decision = deterministicDecision(classification, wardrobeUtility)
-        comparisonSource = 'api'
+        const hasUnknownClosestItemId = typeof ai.duplicateRisk.closestItemId === 'string' && !aiClosest
+        const hasUnsupportedDuplicateLevel = (ai.duplicateRisk.level === 'high' || ai.duplicateRisk.level === 'medium') && !aiClosest
+        if (hasUnknownClosestItemId || hasUnsupportedDuplicateLevel) {
+          comparisonSource = 'deterministic-fallback'
+        } else {
+          classification = ai.duplicateRisk.level
+          if (best.score.total < 20 && classification !== 'low') classification = 'low'
+          else if (best.score.total < SIMILARITY_THRESHOLDS.medium && classification === 'high') classification = 'medium'
+          closestMatch = toPreview(aiClosest ?? best.item)
+          duplicateReasons = ai.duplicateRisk.reasons.slice(0, 3)
+          wardrobeUtility = reconcileUtility(ai.wardrobeUtility, deterministicUtility, wardrobe, candidate)
+          decision = deterministicDecision(classification, wardrobeUtility)
+          comparisonSource = 'api'
+        }
       } catch {
         comparisonSource = 'deterministic-fallback'
       }

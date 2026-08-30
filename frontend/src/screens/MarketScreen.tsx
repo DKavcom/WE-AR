@@ -7,7 +7,7 @@ interface Props extends NavProps {
   initialColor?: string
   items: WardrobeItem[]
   listingItem?: WardrobeItem
-  onCompleteListing: (listing: MarketListing) => void
+  onCompleteListing: (listing: MarketListing) => Promise<{ success: boolean; message?: string }>
 }
 
 export default function MarketScreen({ onNavigate, initialCategory, initialColor, items, listingItem, onCompleteListing }: Props) {
@@ -24,6 +24,7 @@ export default function MarketScreen({ onNavigate, initialCategory, initialColor
   const [notice, setNotice] = useState('')
   const [revision, setRevision] = useState(0)
   const [confirmCompletion, setConfirmCompletion] = useState<MarketListing | null>(null)
+  const [isCompleting, setIsCompleting] = useState(false)
   const mine = useMemo(() => loadMyListings(), [revision])
   const listings = useMemo(() => [...mine, ...MARKET_LISTINGS].filter(listing => (category === 'all' || listing.category === category) && (mode === 'all' || listing.listingType === mode)).sort((a, b) => Number(Boolean(initialColor && a.color === initialColor)) - Number(Boolean(initialColor && b.color === initialColor))).reverse(), [mine, category, mode, initialColor])
   const sendRequest = () => { if (!selected) return; setNotice(selected.listingType === 'trade' ? 'Trade request sent — this is a local demo.' : `Request sent to ${selected.sellerName} — this is a local demo.`); setSelected(null) }
@@ -36,6 +37,20 @@ export default function MarketScreen({ onNavigate, initialCategory, initialColor
     setDraft(null); setListingType(null); setRevision(value => value + 1)
   }
   const closeDraft = () => { setDraft(null); setListingType(null) }
+  const completeListing = async () => {
+    if (!confirmCompletion || isCompleting) return
+    setIsCompleting(true)
+    const result = await onCompleteListing(confirmCompletion)
+    setIsCompleting(false)
+    if (!result.success) {
+      setNotice(result.message ?? 'Could not complete the lifecycle action. Your listing is still active.')
+      setConfirmCompletion(null)
+      return
+    }
+    removeMyListing(confirmCompletion.id)
+    setConfirmCompletion(null)
+    setRevision(value => value + 1)
+  }
   return <div className="bg-[#f7f5f2] min-h-screen pb-10"><div className="h-12"/><div className="px-5">
     <button onClick={() => onNavigate('home')} className="text-[#888] text-sm mb-5">← Back</button>
     <div className="flex items-start justify-between gap-3"><div><h1 className="text-[30px] font-bold mb-1">WE-AR Market</h1><p className="text-[#888] text-sm mb-5">Keep clothes in circulation.</p></div><button onClick={() => { setDraft(null); setListingType(null); setChoosingItem(true) }} className="bg-[#111] text-white text-xs font-bold px-3 py-2 rounded-full">+ List an Item</button></div>
@@ -49,6 +64,6 @@ export default function MarketScreen({ onNavigate, initialCategory, initialColor
     {draft && !listingType && <div className="fixed inset-0 z-40 bg-black/40 flex items-end justify-center"><div className="w-full max-w-[430px] bg-[#f7f5f2] rounded-t-[28px] p-5"><p className="font-bold text-lg">How would you like to list it?</p><div className="flex gap-2 mt-4"><button onClick={() => setListingType('buy')} className="flex-1 bg-[#1b4332] text-white rounded-2xl py-3 font-bold">Sell</button><button onClick={() => setListingType('trade')} className="flex-1 bg-white border border-[#edebe6] rounded-2xl py-3 font-bold">Trade</button></div><button onClick={closeDraft} className="w-full py-3 text-sm text-[#888]">Cancel</button></div></div>}
     {draft && listingType && <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center"><div className="w-full max-w-[430px] bg-[#f7f5f2] rounded-t-[28px] p-5"><p className="font-bold text-lg">{listingType === 'buy' ? 'List for Sale' : 'List for Trade'}</p><div className="flex gap-3 mt-3"><img src={draft.image} alt="" className="size-14 bg-white rounded-xl object-contain"/><div><p className="font-semibold text-sm">{draft.name}</p><p className="text-xs text-[#888] capitalize">{draft.category}{draft.color ? ` · ${draft.color}` : ''}</p></div></div><div className="grid grid-cols-2 gap-2 mt-4">{listingType === 'buy' && <label className="text-xs text-[#666]">Price<input value={price} onChange={event => setPrice(event.target.value)} inputMode="numeric" className="mt-1 w-full bg-white border border-[#edebe6] rounded-xl p-2"/></label>}<label className="text-xs text-[#666]">Size<input value={size} onChange={event => setSize(event.target.value)} placeholder="e.g. M" className="mt-1 w-full bg-white border border-[#edebe6] rounded-xl p-2"/></label><label className="text-xs text-[#666]">Condition<input value={condition} onChange={event => setCondition(event.target.value)} className="mt-1 w-full bg-white border border-[#edebe6] rounded-xl p-2"/></label>{listingType === 'trade' && <label className="col-span-2 text-xs text-[#666]">Looking for<input value={tradePreference} onChange={event => setTradePreference(event.target.value)} className="mt-1 w-full bg-white border border-[#edebe6] rounded-xl p-2"/></label>}</div><button onClick={saveListing} className="w-full mt-5 bg-[#1b4332] text-white rounded-2xl py-3.5 font-bold">{listingType === 'buy' ? 'List for Sale' : 'List for Trade'}</button><button onClick={closeDraft} className="w-full py-3 text-sm text-[#888]">Cancel</button></div></div>}
     {selected && <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center" onClick={() => setSelected(null)}><div className="w-full max-w-[430px] bg-[#f7f5f2] rounded-t-[28px] p-5" onClick={event => event.stopPropagation()}><p className="font-bold text-lg">{selected.title}</p><p className="text-sm text-[#1b4332] font-bold mt-1">{selected.listingType === 'trade' ? 'Open to trade' : `$${selected.price}`}</p><p className="text-sm text-[#666] mt-4">{selected.description}</p><button onClick={sendRequest} className="w-full mt-5 bg-[#1b4332] text-white rounded-2xl py-3.5 font-bold text-sm">{selected.listingType === 'trade' ? 'Offer Trade' : 'Buy Secondhand'}</button><button onClick={() => setSelected(null)} className="w-full py-3 text-sm text-[#888]">Close</button></div></div>}
-    {confirmCompletion && <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center px-5"><div className="bg-white rounded-[24px] p-6 text-center max-w-[330px]"><p className="font-bold text-lg">{confirmCompletion.listingType === 'trade' ? 'Mark as traded?' : 'Mark as sold?'}</p><p className="text-sm text-[#777] mt-2">{confirmCompletion.listingType === 'trade' ? "Confirm only after you've completed the exchange." : 'Confirm only after this item has found a new owner.'}</p><div className="flex gap-2 mt-5"><button onClick={() => setConfirmCompletion(null)} className="flex-1 border border-[#ddd] rounded-xl py-3 text-sm font-semibold">Not yet</button><button onClick={() => { onCompleteListing(confirmCompletion); removeMyListing(confirmCompletion.id); setConfirmCompletion(null); setRevision(value => value + 1) }} className="flex-1 bg-[#1b4332] text-white rounded-xl py-3 text-sm font-bold">{confirmCompletion.listingType === 'trade' ? 'Mark as traded' : 'Mark as sold'}</button></div></div></div>}
+    {confirmCompletion && <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center px-5"><div className="bg-white rounded-[24px] p-6 text-center max-w-[330px]"><p className="font-bold text-lg">{confirmCompletion.listingType === 'trade' ? 'Mark as traded?' : 'Mark as sold?'}</p><p className="text-sm text-[#777] mt-2">{confirmCompletion.listingType === 'trade' ? "Confirm only after you've completed the exchange." : 'Confirm only after this item has found a new owner.'}</p><div className="flex gap-2 mt-5"><button disabled={isCompleting} onClick={() => setConfirmCompletion(null)} className="flex-1 border border-[#ddd] rounded-xl py-3 text-sm font-semibold disabled:opacity-50">Not yet</button><button disabled={isCompleting} onClick={completeListing} className="flex-1 bg-[#1b4332] text-white rounded-xl py-3 text-sm font-bold disabled:opacity-50">{isCompleting ? 'Completing…' : confirmCompletion.listingType === 'trade' ? 'Mark as traded' : 'Mark as sold'}</button></div></div></div>}
   </div></div>
 }

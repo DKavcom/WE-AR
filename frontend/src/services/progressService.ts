@@ -5,6 +5,7 @@ import { runLocalService } from './apiClient'
 import type { EngagementUpdate, ProgressService } from './contracts'
 
 export const INITIAL_PROGRESS: UserProgress = { streak: 0, xp: 820, level: 4, nextLevelThreshold: 1000 }
+export const LEVEL_XP_STEP = 500
 export const XP_REWARDS = { wear: 30, 'forgotten-pick': 40, 'outfit-remix': 45, 'dress-it-up': 45, 'accessory-day': 35, 'color-switch': 35, 'mix-it-up': 45, 'rotation-reset': 140, 'wardrobe-explorer': 140, 'one-piece-three-ways': 150, 'fresh-rotation': 140, repurpose: 80, donate: 100, trade: 90, sell: 80 } as const
 const EMPTY: EngagementState = { challenges: [], uniqueOutfitKeys: [], uniqueItemIds: [], nextChallengeSequence: 1 }
 let localProgress = loadProgress(INITIAL_PROGRESS)
@@ -67,17 +68,26 @@ function ensure(state: EngagementState, wardrobe: WardrobeItem[]) {
 
 function addXP(current: UserProgress, earned: number, lastQualifyingWearDate = current.lastQualifyingWearDate) {
   let xp = current.xp + earned, level = current.level, nextLevelThreshold = current.nextLevelThreshold
-  while (xp >= nextLevelThreshold) { level += 1; nextLevelThreshold += 500 }
+  while (xp >= nextLevelThreshold) { level += 1; nextLevelThreshold += LEVEL_XP_STEP }
   return { ...current, xp, level, nextLevelThreshold, lastQualifyingWearDate }
+}
+
+export function getLevelProgress(progress: UserProgress) {
+  const previousLevelThreshold = Math.max(0, progress.nextLevelThreshold - LEVEL_XP_STEP)
+  const levelSpan = Math.max(1, progress.nextLevelThreshold - previousLevelThreshold)
+  return {
+    progressPercent: Math.max(0, Math.min(100, ((progress.xp - previousLevelThreshold) / levelSpan) * 100)),
+    xpToNextLevel: Math.max(0, progress.nextLevelThreshold - progress.xp),
+  }
 }
 function complete(challenges: EngagementChallenge[], messages: string[]) {
   let earned = 0
   const updated = challenges.map(item => { if (item.completed || item.progress < item.target) return item; earned += item.xpReward; messages.push(`${item.title} complete! +${item.xpReward} XP`); return { ...item, completed: true, completedAt: new Date().toISOString() } })
   return { challenges: updated, earned }
 }
-function finish(before: UserProgress, wardrobe: WardrobeItem[], engagement: EngagementState, earned: number, messages: string[], last?: string, includeStreak = false, progressBase = before): EngagementUpdate {
+function finish(before: UserProgress, wardrobe: WardrobeItem[], engagement: EngagementState, earned: number, messages: string[], last?: string, includeStreak = false, progressBase = before, action: 'wear' | SustainableAction = 'wear'): EngagementUpdate {
   const progress = addXP(progressBase, earned, last); localProgress = progress; localEngagement = ensure(engagement, wardrobe); persistProgress(progress); persistEngagement(localEngagement)
-  return { progress, wardrobe, challenges: localEngagement.challenges.filter(item => !item.completed), reward: { currentXP: before.xp, xpEarned: earned, currentLevel: before.level, nextLevelThreshold: before.nextLevelThreshold, newXP: progress.xp, newLevel: progress.level, ...(includeStreak ? { streakBefore: before.streak, streakAfter: progress.streak } : {}), messages } }
+  return { progress, wardrobe, challenges: localEngagement.challenges.filter(item => !item.completed), reward: { action, currentXP: before.xp, xpEarned: earned, currentLevel: before.level, nextLevelThreshold: before.nextLevelThreshold, newXP: progress.xp, newLevel: progress.level, ...(includeStreak ? { streakBefore: before.streak, streakAfter: progress.streak } : {}), messages } }
 }
 
 export const progressService: ProgressService = {
@@ -108,14 +118,14 @@ export const progressService: ProgressService = {
     })
     const messages = [`Outfit worn +${XP_REWARDS.wear} XP`], done = complete(progressed, messages)
     const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1); const qualifies = before.lastQualifyingWearDate !== today(); const streak = { ...before, streak: !qualifies ? before.streak : before.lastQualifyingWearDate === key(yesterday) ? before.streak + 1 : 1 }
-    return finish(before, updatedWardrobe, { ...localEngagement, challenges: done.challenges, dailyOutfitKeys: [...new Set([...(localEngagement.dailyOutfitKeys ?? []), outfitId])], weeklyOutfitKeys: [...new Set([...(localEngagement.weeklyOutfitKeys ?? []), outfitId])], weeklyQualifiedItemIds: qualified, weeklyCategoryIds: weeklyCategories, weeklyTargetOutfitKeys: targetOutfits }, XP_REWARDS.wear + done.earned, messages, qualifies ? today() : before.lastQualifyingWearDate, true, streak)
+    return finish(before, updatedWardrobe, { ...localEngagement, challenges: done.challenges, dailyOutfitKeys: [...new Set([...(localEngagement.dailyOutfitKeys ?? []), outfitId])], weeklyOutfitKeys: [...new Set([...(localEngagement.weeklyOutfitKeys ?? []), outfitId])], weeklyQualifiedItemIds: qualified, weeklyCategoryIds: weeklyCategories, weeklyTargetOutfitKeys: targetOutfits }, XP_REWARDS.wear + done.earned, messages, qualifies ? today() : before.lastQualifyingWearDate, qualifies, streak, 'wear')
   }),
   recordSustainableAction: (itemId, action, wardrobe) => runLocalService(() => {
     const item = wardrobe.find(candidate => candidate.id === itemId); if (!item || item.isActive === false) throw new Error('This item is no longer active in your wardrobe.')
-    if (item.lifecycleHistory?.some(event => event.action === action)) return finish(localProgress, wardrobe, localEngagement, 0, [`${item.name} was already recorded as ${action}.`])
+    if (item.lifecycleHistory?.some(event => event.action === action)) return finish(localProgress, wardrobe, localEngagement, 0, [`${item.name} was already recorded as ${action}.`], undefined, false, localProgress, action)
     const now = new Date().toISOString(), updatedWardrobe = wardrobe.map(candidate => candidate.id !== itemId ? candidate : { ...candidate, isActive: action === 'repurpose', ...(action === 'repurpose' ? {} : { archivedAt: now }), lifecycleHistory: [...(candidate.lifecycleHistory ?? []), { id: uid(), action, createdAt: now }] })
     const progressed = localEngagement.challenges.map(challenge => !challenge.completed && challenge.relevantItemId === itemId && challenge.type === 'second-life' && action === 'repurpose' ? { ...challenge, progress: challenge.target } : challenge)
     const messages = [`${action[0].toUpperCase() + action.slice(1)} recorded +${XP_REWARDS[action]} XP`], done = complete(progressed, messages)
-    return finish(localProgress, updatedWardrobe, { ...localEngagement, challenges: done.challenges }, XP_REWARDS[action] + done.earned, messages)
+    return finish(localProgress, updatedWardrobe, { ...localEngagement, challenges: done.challenges }, XP_REWARDS[action] + done.earned, messages, undefined, false, localProgress, action)
   }),
 }

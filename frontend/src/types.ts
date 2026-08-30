@@ -10,6 +10,7 @@ export type Screen =
   | 'wardrobe'
   | 'add-wardrobe'
   | 'market'
+  | 'leaderboard'
 
 export type SimilarityClassification = 'high' | 'medium' | 'low'
 export type WardrobeUtilityLevel = 'high' | 'medium' | 'low'
@@ -110,6 +111,7 @@ export interface BuyCheckDecision {
 }
 
 export interface RewardData {
+  action?: 'wear' | 'repurpose' | 'donate' | 'trade' | 'sell'
   currentXP: number
   xpEarned: number
   currentLevel: number

@@ -40,6 +40,15 @@ function levelProgress(xp: number, threshold: number) {
 
 export default function RewardScreen({ onNavigate, rewardData }: Props) {
   const { currentXP, xpEarned, currentLevel, nextLevelThreshold, newXP, newLevel } = rewardData
+  const action = rewardData.action ?? 'wear'
+  const lifecycleCopy = {
+    repurpose: { title: 'Second Life!', message: 'You found a new use for this piece.' },
+    donate: { title: 'Passed It On', message: 'This piece is ready for a new home.' },
+    sell: { title: 'Sold!', message: 'Your piece is moving on to a new owner.' },
+    trade: { title: 'Trade Complete', message: 'Your piece is continuing its journey.' },
+  } as const
+  const isWear = action === 'wear'
+  const copy = isWear ? { title: 'Smart Choice!', message: rewardData.messages?.[0] ?? 'You made a new fit using clothes you already own.' } : lifecycleCopy[action]
 
   const [xpVisible, setXpVisible] = useState(false)
   const [barProgress, setBarProgress] = useState(levelProgress(currentXP, nextLevelThreshold))
@@ -59,7 +68,7 @@ export default function RewardScreen({ onNavigate, rewardData }: Props) {
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3) }
   }, [currentLevel, newLevel, newXP, nextLevelThreshold])
 
-  const hasStreakUpdate = rewardData.streakBefore !== undefined && rewardData.streakAfter !== undefined
+  const hasStreakUpdate = isWear && rewardData.streakBefore !== undefined && rewardData.streakAfter !== undefined && rewardData.streakBefore !== rewardData.streakAfter
 
   return (
     <div className="bg-[#f7f5f2] min-h-screen flex flex-col overflow-hidden relative">
@@ -93,10 +102,10 @@ export default function RewardScreen({ onNavigate, rewardData }: Props) {
           className="text-[36px] font-bold text-[#111] mb-2"
           style={{ fontFamily: 'Inter, system-ui, sans-serif' }}
         >
-          Smart Choice!
+          {copy.title}
         </h1>
         <p className="text-[#666] text-[15px] leading-relaxed mb-8 max-w-[260px]">
-          {rewardData.messages?.[0] ?? 'You made a new fit using clothes you already own.'}
+          {copy.message}
         </p>
 
         {/* XP earned badge */}
@@ -156,14 +165,14 @@ export default function RewardScreen({ onNavigate, rewardData }: Props) {
 
       {/* Action buttons */}
       <div className="px-5 pb-10 flex flex-col gap-3 relative z-10">
-        <button
+        {isWear && <button
           onClick={() => onNavigate('style')}
           className="w-full bg-white border-2 border-[#111] text-[#111] font-semibold text-[15px] py-4 rounded-[18px] active:scale-[0.98] transition-transform"
         >
           View / Save This Fit
-        </button>
+        </button>}
         <button
-          onClick={() => onNavigate('home')}
+          onClick={() => onNavigate(isWear ? 'home' : 'wardrobe')}
           className="w-full bg-[#111] text-white font-bold text-[15px] py-4 rounded-[18px] active:scale-[0.98] transition-transform shadow-sm"
         >
           Back to Wardrobe

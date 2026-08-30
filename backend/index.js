@@ -51,7 +51,20 @@ async function prepareImage(buffer) {
     .toBuffer();
 }
 
-// Helper: call GPT-4o vision and parse JSON, with one retry on bad JSON
+const EXTRACTION_CATEGORIES = new Set(['top', 'bottom', 'shoes', 'outerwear', 'accessory']);
+const EXTRACTION_STRING_FIELDS = ['subcategory', 'color', 'pattern', 'fit', 'sleeve_length', 'length', 'material_guess', 'condition_notes'];
+const EXTRACTION_ARRAY_FIELDS = ['secondary_colors', 'style_tags', 'season'];
+
+function validExtractionAttributes(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (!EXTRACTION_CATEGORIES.has(value.category) || typeof value.color !== 'string' || !value.color.trim()) return false;
+  if (EXTRACTION_STRING_FIELDS.some(field => value[field] !== undefined && (typeof value[field] !== 'string' || !value[field].trim()))) return false;
+  if (EXTRACTION_ARRAY_FIELDS.some(field => value[field] !== undefined && (!Array.isArray(value[field]) || value[field].some(item => typeof item !== 'string' || !item.trim())))) return false;
+  if (value.formality_score !== undefined && (!Number.isInteger(value.formality_score) || value.formality_score < 1 || value.formality_score > 5)) return false;
+  return value.dominant_hex === undefined || (typeof value.dominant_hex === 'string' && /^#[0-9a-f]{6}$/i.test(value.dominant_hex));
+}
+
+// Helper: call GPT-4o vision and parse validated JSON, with one retry on invalid output
 async function extractAttributes(base64Image, attempt = 1) {
   const response = await getOpenAIClient().chat.completions.create({
     model: 'gpt-4o',   // was 'gpt-4o'
@@ -72,13 +85,15 @@ async function extractAttributes(base64Image, attempt = 1) {
   try {
     // strip accidental markdown fences just in case
     const cleaned = raw.replace(/```json|```/g, '').trim();
-    return JSON.parse(cleaned);
+    const attributes = JSON.parse(cleaned);
+    if (!validExtractionAttributes(attributes)) throw new Error('Invalid extraction attributes.');
+    return attributes;
   } catch (err) {
     if (attempt === 1) {
-      console.warn('Bad JSON from model, retrying once...');
+      console.warn('Invalid extraction response from model, retrying once...');
       return extractAttributes(base64Image, 2);
     }
-    throw new Error('Model did not return valid JSON after retry: ' + raw);
+    throw new Error('Model did not return valid clothing attributes after retry.');
   }
 }
 

@@ -25,8 +25,23 @@ function normalizeCategory(category: string | undefined): WardrobeCategory | nul
   }
 }
 
+const SUPPORTED_EXTRACTION_CATEGORIES = new Set(['top', 'bottom', 'shoes', 'outerwear', 'accessory'])
+const EXTRACTION_STRING_FIELDS = ['subcategory', 'color', 'pattern', 'fit', 'sleeve_length', 'length', 'material_guess', 'condition_notes'] as const
+const EXTRACTION_ARRAY_FIELDS = ['secondary_colors', 'style_tags', 'season'] as const
+
+function isValidApiExtraction(value: Record<string, unknown>) {
+  const category = asNonEmptyString(value.category)?.toLowerCase()
+  const formalityScore = value.formality_score
+  if (!category || !SUPPORTED_EXTRACTION_CATEGORIES.has(category) || !asNonEmptyString(value.color)) return false
+  if (EXTRACTION_STRING_FIELDS.some(field => value[field] !== undefined && !asNonEmptyString(value[field]))) return false
+  if (EXTRACTION_ARRAY_FIELDS.some(field => value[field] !== undefined && (!Array.isArray(value[field]) || value[field].some(item => !asNonEmptyString(item))))) return false
+  if (formalityScore !== undefined && (typeof formalityScore !== 'number' || !Number.isInteger(formalityScore) || formalityScore < 1 || formalityScore > 5)) return false
+  return value.dominant_hex === undefined || (typeof value.dominant_hex === 'string' && /^#[0-9a-f]{6}$/i.test(value.dominant_hex))
+}
+
 function normalizeAttributes(value: unknown, source: 'api' | 'local'): ExtractedWardrobeMetadata | null {
   if (!isRecord(value)) return null
+  if (source === 'api' && !isValidApiExtraction(value)) return null
 
   const category = asNonEmptyString(value.category)
   const subcategory = asNonEmptyString(value.subcategory)

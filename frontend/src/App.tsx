@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
-import type { EngagementChallenge, Outfit, Screen, SimilarityResult, RewardData, SavedFit, StyleEntryPoint, StylePreference, SustainableAction, UserProgress, WardrobeCategory, WardrobeItem } from './types'
+import type { EngagementChallenge, EngagementState, Outfit, Screen, SimilarityResult, RewardData, SavedFit, StyleEntryPoint, StylePreference, SustainableAction, UserProgress, WardrobeCategory, WardrobeItem } from './types'
 import { analysisService } from './services/analysisService'
 import { INITIAL_PROGRESS, progressService } from './services/progressService'
 import { preferencesService } from './services/preferencesService'
@@ -18,6 +18,9 @@ import SavedFitsScreen from './screens/SavedFitsScreen'
 import WardrobeScreen from './screens/WardrobeScreen'
 import AddWardrobeScreen from './screens/AddWardrobeScreen'
 import MarketScreen from './screens/MarketScreen'
+import LeaderboardScreen from './screens/LeaderboardScreen'
+
+const EMPTY_ENGAGEMENT: EngagementState = { challenges: [], uniqueOutfitKeys: [], uniqueItemIds: [], nextChallengeSequence: 1 }
 export default function App() {
   const [screen,setScreen]=useState<Screen>('home')
   const [uploadedImageUrl,setUploadedImageUrl]=useState<string|null>(null)
@@ -28,6 +31,7 @@ export default function App() {
   const [rewardData,setRewardData]=useState<RewardData | null>(null)
   const [progress,setProgress]=useState<UserProgress>(INITIAL_PROGRESS)
   const [challenges,setChallenges]=useState<EngagementChallenge[]>([])
+  const [engagement,setEngagement]=useState<EngagementState>(EMPTY_ENGAGEMENT)
   const [wardrobe,setWardrobe]=useState<WardrobeItem[]>([])
   const [savedFits,setSavedFits]=useState<SavedFit[]>([])
   const [stylePreferences,setStylePreferences]=useState<StylePreference[]>([])
@@ -61,7 +65,10 @@ export default function App() {
     if (engagementLoadedRef.current || !wardrobe.length) return
     engagementLoadedRef.current = true
     void progressService.getEngagement(wardrobe).then(result => {
-      if (result.data) setChallenges(result.data.challenges.filter(challenge => !challenge.completed))
+      if (result.data) {
+        setEngagement(result.data)
+        setChallenges(result.data.challenges.filter(challenge => !challenge.completed))
+      }
     })
   }, [wardrobe])
 
@@ -172,17 +179,23 @@ export default function App() {
       setWardrobe(result.data.wardrobe)
       setProgress(result.data.progress)
       setChallenges(result.data.challenges)
+      void progressService.getEngagement(result.data.wardrobe).then(engagementResult => {
+        if (engagementResult.data) setEngagement(engagementResult.data)
+      })
       setRewardData(result.data.reward)
       setScreen('reward')
     }).finally(()=>{ wearInFlightRef.current = false })
   },[wardrobe])
-  const handleSustainableAction=useCallback((itemId:string, action:SustainableAction, listingMessage?: string)=>{
-    void progressService.recordSustainableAction(itemId, action, wardrobe).then(result=>{
-      if (!result.data) return
+  const handleSustainableAction=useCallback(async (itemId:string, action:SustainableAction, listingMessage?: string):Promise<{ success:boolean; message?:string }>=>{
+    const result = await progressService.recordSustainableAction(itemId, action, wardrobe)
+    if (!result.data) return { success:false, message:result.error?.message ?? 'Could not complete this lifecycle action. Please try again.' }
       syncWardrobe(result.data.wardrobe)
       setWardrobe(result.data.wardrobe)
       setProgress(result.data.progress)
       setChallenges(result.data.challenges)
+      void progressService.getEngagement(result.data.wardrobe).then(engagementResult => {
+        if (engagementResult.data) setEngagement(engagementResult.data)
+      })
       if (action !== 'repurpose') {
         setRecommendedOutfits(outfits=>outfits.filter(outfit=>!(outfit.items ?? []).some(item=>item.id===itemId)))
         setInitialOutfit(current=>current && !(current.items ?? []).some(item=>item.id===itemId) ? current : undefined)
@@ -190,15 +203,15 @@ export default function App() {
       }
       setRewardData(listingMessage ? { ...result.data.reward, messages: [listingMessage, ...(result.data.reward.messages ?? [])] } : result.data.reward)
       setScreen('reward')
-    })
+    return { success:true }
   },[wardrobe])
   const listWardrobeItem=useCallback((item: WardrobeItem, action: Extract<SustainableAction, 'sell' | 'trade'>, details: { price?: number; size: string; condition: string; tradePreference?: string })=>{
     setMarketListingItem(item)
     setScreen('market')
   },[])
-  const completeMarketListing=useCallback((listing: import('./types').MarketListing)=>{
-    if (!listing.wardrobeItemId) return
-    handleSustainableAction(listing.wardrobeItemId, listing.listingType === 'trade' ? 'trade' : 'sell', listing.listingType === 'trade' ? 'Traded' : 'Sold')
+  const completeMarketListing=useCallback(async (listing: import('./types').MarketListing):Promise<{ success:boolean; message?:string }>=>{
+    if (!listing.wardrobeItemId) return { success:false, message:'This listing is no longer linked to a wardrobe item.' }
+    return handleSustainableAction(listing.wardrobeItemId, listing.listingType === 'trade' ? 'trade' : 'sell', listing.listingType === 'trade' ? 'Traded' : 'Sold')
   },[handleSustainableAction])
   const addWardrobeItem=useCallback(async (item:WardrobeItem):Promise<string|null>=>{
     const result = await wardrobeService.create({ ...item, firstAddedAt: item.firstAddedAt ?? new Date().toISOString(), isActive: item.isActive ?? true })
@@ -254,6 +267,7 @@ export default function App() {
     {screen==='saved'&&<SavedFitsScreen onNavigate={navigate} fits={savedFits} activeItemIds={activeWardrobe.map(item=>item.id)} onOpenFit={(fit)=>openStyle(fit,'saved-fit',fit.id)} onRemoveFit={removeSavedFit}/>}
     {screen==='wardrobe'&&<WardrobeScreen onNavigate={navigate} items={wardrobe} onSustainableAction={handleSustainableAction} onRemoveItem={removeWardrobeItem} onListItem={listWardrobeItem}/>}
     {screen==='add-wardrobe'&&<AddWardrobeScreen onNavigate={navigate} onAddItem={addWardrobeItem}/>} 
-    {screen==='market'&&<MarketScreen onNavigate={navigate} initialCategory={marketFilter.category} initialColor={marketFilter.color} items={activeWardrobe} listingItem={marketListingItem} onCompleteListing={completeMarketListing}/>}
+    {screen==='market'&&<MarketScreen onNavigate={navigate} initialCategory={marketFilter.category} initialColor={marketFilter.color} items={activeWardrobe} listingItem={marketListingItem} onCompleteListing={completeMarketListing}/>} 
+    {screen==='leaderboard'&&<LeaderboardScreen onNavigate={navigate} progress={progress} wardrobe={wardrobe} engagement={engagement}/>} 
   </div></div>
 }
