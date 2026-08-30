@@ -1,6 +1,6 @@
-# WE-AR
+# ReWear
 
-WE-AR is a sustainable wardrobe assistant that helps people buy less, wear more of what they already own, and make better use of neglected clothing.
+ReWear is a sustainable wardrobe assistant that helps people buy less, wear more of what they already own, and make better use of neglected clothing.
 
 The prototype combines AI clothing analysis, wardrobe similarity checking, outfit recommendations, side-by-side outfit comparison, and gamification mechanics such as XP, streaks, challenges, and sustainable wardrobe actions.
 
@@ -10,7 +10,7 @@ People often buy clothes without remembering what they already own or knowing wh
 
 At the same time, many existing clothes go unworn for long periods.
 
-WE-AR tackles both sides of the problem:
+ReWear tackles both sides of the problem:
 
 - Reduce unnecessary purchases
 - Bring neglected clothing back into rotation
@@ -251,7 +251,7 @@ Changing or shuffling the outfit recalculates whether the new combination is sav
 
 # Gamification
 
-Gamification is a major part of WE-AR.
+Gamification is a major part of ReWear.
 
 The goal is to make sustainable wardrobe habits rewarding and repeatable instead of relying only on sustainability warnings.
 
